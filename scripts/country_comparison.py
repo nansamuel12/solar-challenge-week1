@@ -8,7 +8,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
-from data_loader import combine_countries, load_all_countries, clean_solar_data
+from .data_loader import combine_countries, load_all_countries, clean_solar_data
+from scipy import stats
 import json
 
 # Set style
@@ -109,9 +110,306 @@ def calculate_solar_potential_metrics(df: pd.DataFrame, country: str) -> dict:
     return metrics
 
 
+def create_irradiance_boxplots(datasets: dict, output_path: Path):
+    """
+    Create side-by-side boxplots for GHI, DNI, and DHI across countries.
+    
+    Parameters:
+    -----------
+    datasets : dict
+        Dictionary of country datasets
+    output_path : Path
+        Path to save plots
+    """
+    plots_dir = output_path / "plots"
+    plots_dir.mkdir(exist_ok=True, parents=True)
+    
+    # Prepare data for boxplots
+    irradiance_data = []
+    countries = list(datasets.keys())
+    
+    for country in countries:
+        df = datasets[country]
+        for metric in ['GHI', 'DNI', 'DHI']:
+            if metric in df.columns:
+                values = df[metric].dropna()
+                for val in values:
+                    irradiance_data.append({
+                        'Country': country,
+                        'Metric': metric,
+                        'Value': val
+                    })
+    
+    irradiance_df = pd.DataFrame(irradiance_data)
+    
+    # Create boxplots
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+    fig.suptitle('Side-by-Side Boxplots: Solar Irradiance Components by Country', 
+                 fontsize=16, fontweight='bold')
+    
+    metrics = ['GHI', 'DNI', 'DHI']
+    colors = ['#2ecc71', '#3498db', '#e74c3c']
+    
+    for i, metric in enumerate(metrics):
+        metric_data = irradiance_df[irradiance_df['Metric'] == metric]
+        sns.boxplot(data=metric_data, x='Country', y='Value', ax=axes[i], 
+                   palette=colors[:len(countries)])
+        axes[i].set_title(f'{metric} Distribution')
+        axes[i].set_ylabel(f'{metric} (W/m²)')
+        axes[i].grid(True, alpha=0.3)
+        
+        # Add median values as text
+        for j, country in enumerate(countries):
+            country_data = metric_data[metric_data['Country'] == country]['Value']
+            median_val = country_data.median()
+            axes[i].text(j, median_val, f'{median_val:.1f}', 
+                        ha='center', va='bottom', fontweight='bold')
+    
+    plt.tight_layout()
+    boxplot_file = plots_dir / "irradiance_boxplots.png"
+    plt.savefig(boxplot_file, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"  Saved irradiance boxplots to {boxplot_file}")
+    
+    return irradiance_df
+
+
+def create_summary_statistics_table(datasets: dict) -> pd.DataFrame:
+    """
+    Generate summary table comparing mean, median, and standard deviation across countries.
+    
+    Parameters:
+    -----------
+    datasets : dict
+        Dictionary of country datasets
+    
+    Returns:
+    --------
+    pd.DataFrame
+        Summary statistics table
+    """
+    summary_data = []
+    countries = list(datasets.keys())
+    metrics = ['GHI', 'DNI', 'DHI']
+    
+    for country in countries:
+        df = datasets[country]
+        for metric in metrics:
+            if metric in df.columns:
+                values = df[metric].dropna()
+                summary_data.append({
+                    'Country': country,
+                    'Metric': metric,
+                    'Mean': values.mean(),
+                    'Median': values.median(),
+                    'Std Dev': values.std(),
+                    'Min': values.min(),
+                    'Max': values.max(),
+                    'Count': len(values)
+                })
+    
+    summary_df = pd.DataFrame(summary_data)
+    
+    # Print formatted summary table
+    print("\n" + "="*80)
+    print("SUMMARY STATISTICS TABLE")
+    print("="*80)
+    print(summary_df.to_string(index=False, float_format='%.2f'))
+    print("="*80)
+    
+    return summary_df
+
+
+def perform_statistical_tests(datasets: dict, alpha: float = 0.05):
+    """
+    Perform one-way ANOVA or Kruskal-Wallis test on GHI to validate findings.
+    
+    Parameters:
+    -----------
+    datasets : dict
+        Dictionary of country datasets
+    alpha : float
+        Significance level for hypothesis testing
+    """
+    print("\n" + "="*80)
+    print("STATISTICAL ANALYSIS: GHI COMPARISON ACROSS COUNTRIES")
+    print("="*80)
+    
+    # Extract GHI data for each country
+    ghi_data = []
+    country_names = []
+    
+    for country, df in datasets.items():
+        if 'GHI' in df.columns:
+            ghi_values = df['GHI'].dropna()
+            ghi_data.append(ghi_values)
+            country_names.append(country)
+            print(f"{country}: {len(ghi_values)} GHI measurements, "
+                  f"Mean = {ghi_values.mean():.2f} W/m², "
+                  f"Std = {ghi_values.std():.2f} W/m²")
+    
+    if len(ghi_data) < 2:
+        print("Insufficient data for statistical comparison")
+        return
+    
+    # Test for normality to decide between ANOVA and Kruskal-Wallis
+    print(f"\nTesting normality (alpha = {alpha}):")
+    use_anova = True
+    
+    for i, (country, data) in enumerate(zip(country_names, ghi_data)):
+        # Shapiro-Wilk test for normality (sample size limit)
+        if len(data) <= 5000:
+            stat, p_value = stats.shapiro(data[:5000])  # Limit sample size for Shapiro
+            print(f"{country}: Shapiro-Wilk p-value = {p_value:.6f}")
+            if p_value < alpha:
+                use_anova = False
+        else:
+            # For large samples, use Anderson-Darling
+            stat, critical_values, significance_level = stats.anderson(data, 'norm')
+            print(f"{country}: Anderson-Darling statistic = {stat:.4f}")
+            print(f"  Critical values at {significance_level[-1]}%: {critical_values[-1]:.4f}")
+            if stat > critical_values[-1]:
+                use_anova = False
+    
+    # Perform appropriate test
+    print(f"\nChosen test: {'One-way ANOVA' if use_anova else 'Kruskal-Wallis'}")
+    
+    if use_anova:
+        # One-way ANOVA
+        stat, p_value = stats.f_oneway(*ghi_data)
+        test_name = "One-way ANOVA"
+        
+        # Calculate effect size (eta-squared)
+        total_mean = np.mean(np.concatenate(ghi_data))
+        ss_between = sum(len(data) * (np.mean(data) - total_mean)**2 for data in ghi_data)
+        ss_total = sum((val - total_mean)**2 for data in ghi_data for val in data)
+        eta_squared = ss_between / ss_total if ss_total > 0 else 0
+        
+    else:
+        # Kruskal-Wallis test
+        stat, p_value = stats.kruskal(*ghi_data)
+        test_name = "Kruskal-Wallis"
+        eta_squared = None  # Effect size not typically calculated for Kruskal-Wallis
+    
+    # Report results
+    print(f"\n{test_name} Results:")
+    print(f"Test statistic: {stat:.4f}")
+    print(f"p-value: {p_value:.6f}")
+    
+    if eta_squared is not None:
+        print(f"Effect size (eta-squared): {eta_squared:.4f}")
+    
+    # Interpretation
+    print(f"\nInterpretation (alpha = {alpha}):")
+    if p_value < alpha:
+        print("[PASS] REJECT null hypothesis - Significant differences exist between countries")
+        
+        # Post-hoc tests if significant
+        if len(country_names) > 2:
+            print("\nPost-hoc pairwise comparisons:")
+            for i in range(len(country_names)):
+                for j in range(i+1, len(country_names)):
+                    if use_anova:
+                        t_stat, p_pair = stats.ttest_ind(ghi_data[i], ghi_data[j])
+                        test_type = "t-test"
+                    else:
+                        t_stat, p_pair = stats.mannwhitneyu(ghi_data[i], ghi_data[j], alternative='two-sided')
+                        test_type = "Mann-Whitney U"
+                    
+                    significance = "[SIGNIFICANT]" if p_pair < alpha else "[NOT significant]"
+                    print(f"  {country_names[i]} vs {country_names[j]}: {test_type} p = {p_pair:.6f} ({significance})")
+    else:
+        print("[FAIL] FAIL to reject null hypothesis - No significant differences between countries")
+    
+    print("="*80)
+    
+    return {
+        'test_name': test_name,
+        'statistic': stat,
+        'p_value': p_value,
+        'eta_squared': eta_squared,
+        'significant': p_value < alpha
+    }
+
+
+def generate_strategic_recommendations(comparison_df: pd.DataFrame, statistical_results: dict):
+    """
+    Generate final strategic recommendations for MoonLight Energy Solutions.
+    
+    Parameters:
+    -----------
+    comparison_df : pd.DataFrame
+        Country comparison metrics
+    statistical_results : dict
+        Results from statistical analysis
+    """
+    print("\n" + "="*80)
+    print("STRATEGIC RECOMMENDATIONS FOR MOONLIGHT ENERGY SOLUTIONS")
+    print("="*80)
+    
+    # Identify top performing country
+    top_country = comparison_df.index[0]
+    top_score = comparison_df.loc[top_country, 'solar_potential_score']
+    
+    print(f"\n[TOP RANKED] TOP RANKED COUNTRY: {top_country}")
+    print(f"   Solar Potential Score: {top_score:.2f}")
+    print(f"   Average Daily GHI: {comparison_df.loc[top_country, 'avg_daily_ghi']:.2f} W/m²")
+    print(f"   Annual Solar Energy: {comparison_df.loc[top_country, 'annual_solar_energy']:.0f} kWh/m²/year")
+    
+    # Statistical validation
+    print(f"\n[STATS] STATISTICAL VALIDATION:")
+    if statistical_results['significant']:
+        print(f"   [PASS] {statistical_results['test_name']} shows significant differences (p = {statistical_results['p_value']:.6f})")
+        if statistical_results['eta_squared']:
+            effect_size = statistical_results['eta_squared']
+            if effect_size > 0.14:
+                print(f"   [LARGE] Large effect size (eta-squared = {effect_size:.3f}) - Strong practical significance")
+            elif effect_size > 0.06:
+                print(f"   [MEDIUM] Medium effect size (eta-squared = {effect_size:.3f}) - Moderate practical significance")
+            else:
+                print(f"   [SMALL] Small effect size (eta-squared = {effect_size:.3f}) - Limited practical significance")
+    else:
+        print(f"   [WARNING] No significant differences found (p = {statistical_results['p_value']:.6f})")
+    
+    # Investment recommendations
+    print(f"\n[INVEST] INVESTMENT RECOMMENDATIONS:")
+    print(f"   1. [PRIORITY] PRIORITY MARKET: {top_country}")
+    print(f"      - Highest solar potential score")
+    print(f"      - Optimal conditions for near-term deployment")
+    print(f"      - Best ROI potential for initial investment")
+    
+    if len(comparison_df) > 1:
+        second_country = comparison_df.index[1]
+        print(f"   2. [EXPANSION] EXPANSION MARKET: {second_country}")
+        print(f"      - Second-highest potential")
+        print(f"      - Portfolio diversification opportunity")
+        print(f"      - Risk mitigation through geographic spread")
+    
+    print(f"\n[DEPLOY] DEPLOYMENT STRATEGY:")
+    print(f"   • Phase 1 (0-12 months): Grid-tied pilot plants in {top_country}")
+    print(f"   • Phase 2 (12-24 months): Scale up in {top_country}, begin planning in secondary markets")
+    print(f"   • Phase 3 (24-36 months): Full portfolio deployment across all viable markets")
+    
+    print(f"\n[OPTIMIZE] OPTIMIZATION INSIGHTS:")
+    print(f"   • Target commissioning during peak GHI months")
+    print(f"   • Prioritize sites with high clear-sky ratios")
+    print(f"   • Implement continuous monitoring for performance validation")
+    print(f"   • Consider hybrid systems where weather variability is high")
+    
+    print(f"\n[TIMING] MARKET ENTRY TIMING:")
+    print(f"   • Immediate: Begin feasibility studies in {top_country}")
+    print(f"   • Short-term: Secure permits and partnerships")
+    print(f"   • Medium-term: Deploy pilot facilities")
+    print(f"   • Long-term: Scale to commercial operations")
+    
+    print("="*80)
+    print("[COMPLETE] Strategic analysis complete - Ready for executive review!")
+    print("="*80)
+
+
 def compare_countries(data_dir: str = "data", output_dir: str = "data"):
     """
-    Compare solar potential across countries.
+    Compare solar potential across countries with comprehensive analysis.
     
     Parameters:
     -----------
@@ -123,23 +421,56 @@ def compare_countries(data_dir: str = "data", output_dir: str = "data"):
     output_path = Path(output_dir)
     output_path.mkdir(exist_ok=True)
     
-    # Load and clean all country datasets
-    print("Loading country datasets...")
-    datasets = load_all_countries(data_dir)
-    
-    if not datasets:
-        print("No datasets loaded. Please check file paths.")
-        return
-    
-    # Clean datasets
+    # Load cleaned datasets from data/ directory
+    print("Loading cleaned country datasets...")
     cleaned_datasets = {}
-    for country, df in datasets.items():
-        print(f"Cleaning {country}...")
-        df_clean, _ = clean_solar_data(df)
-        cleaned_datasets[country] = df_clean
     
-    # Calculate metrics for each country
-    print("\nCalculating solar potential metrics...")
+    # Map country names to cleaned file names
+    country_files = {
+        'Benin': 'benin_cleaned.csv',
+        'Sierra Leone': 'sierra_leone_cleaned.csv', 
+        'Togo': 'togo_cleaned.csv'
+    }
+    
+    for country, filename in country_files.items():
+        file_path = Path(data_dir) / filename
+        if file_path.exists():
+            print(f"Loading {country} from {file_path}...")
+            df = pd.read_csv(file_path)
+            # Convert Timestamp back to datetime if needed
+            if 'Timestamp' in df.columns:
+                df['Timestamp'] = pd.to_datetime(df['Timestamp'])
+            cleaned_datasets[country] = df
+            print(f"  Loaded {len(df)} records for {country}")
+        else:
+            print(f"Warning: {file_path} not found")
+    
+    if not cleaned_datasets:
+        print("No cleaned datasets loaded. Please check file paths.")
+        return None, None, None
+    
+    # Step 1: Create side-by-side boxplots for GHI, DNI, DHI
+    print("\n" + "="*60)
+    print("STEP 1: CREATING IRRADIANCE BOXPLOTS")
+    print("="*60)
+    irradiance_df = create_irradiance_boxplots(cleaned_datasets, output_path)
+    
+    # Step 2: Generate summary statistics table
+    print("\n" + "="*60)
+    print("STEP 2: GENERATING SUMMARY STATISTICS TABLE")
+    print("="*60)
+    summary_df = create_summary_statistics_table(cleaned_datasets)
+    
+    # Save summary statistics
+    summary_file = output_path / "summary_statistics.csv"
+    summary_df.to_csv(summary_file, index=False)
+    print(f"Saved summary statistics to {summary_file}")
+    
+    # Step 3: Calculate solar potential metrics
+    print("\n" + "="*60)
+    print("STEP 3: CALCULATING SOLAR POTENTIAL METRICS")
+    print("="*60)
+    print("Calculating solar potential metrics...")
     country_metrics = {}
     for country, df in cleaned_datasets.items():
         print(f"  Analyzing {country}...")
@@ -152,7 +483,7 @@ def compare_countries(data_dir: str = "data", output_dir: str = "data"):
     # Save comparison results
     comparison_file = output_path / "country_comparison.csv"
     comparison_df.to_csv(comparison_file)
-    print(f"\nSaved comparison results to {comparison_file}")
+    print(f"Saved comparison results to {comparison_file}")
     
     # Save metrics as JSON
     metrics_file = output_path / "country_metrics.json"
@@ -160,9 +491,34 @@ def compare_countries(data_dir: str = "data", output_dir: str = "data"):
         json.dump(country_metrics, f, indent=2, default=str)
     print(f"Saved metrics to {metrics_file}")
     
-    # Print comparison summary
+    # Step 4: Perform statistical analysis (ANOVA/Kruskal-Wallis)
+    print("\n" + "="*60)
+    print("STEP 4: STATISTICAL ANALYSIS")
+    print("="*60)
+    statistical_results = perform_statistical_tests(cleaned_datasets)
+    
+    # Save statistical results
+    stats_file = output_path / "statistical_analysis.json"
+    with open(stats_file, 'w') as f:
+        json.dump(statistical_results, f, indent=2, default=str)
+    print(f"Saved statistical analysis to {stats_file}")
+    
+    # Step 5: Generate strategic recommendations
+    print("\n" + "="*60)
+    print("STEP 5: STRATEGIC RECOMMENDATIONS")
+    print("="*60)
+    generate_strategic_recommendations(comparison_df, statistical_results)
+    
+    # Step 6: Generate additional visualizations
+    print("\n" + "="*60)
+    print("STEP 6: GENERATING ADDITIONAL VISUALIZATIONS")
+    print("="*60)
+    print("Generating comparison visualizations...")
+    generate_comparison_plots(cleaned_datasets, country_metrics, output_path)
+    
+    # Print final comparison summary
     print("\n" + "="*80)
-    print("COUNTRY COMPARISON SUMMARY")
+    print("FINAL COUNTRY COMPARISON SUMMARY")
     print("="*80)
     print(f"\n{'Country':<20} {'Solar Score':<15} {'Avg Daily GHI':<20} {'Annual Energy':<20}")
     print("-"*80)
@@ -171,10 +527,7 @@ def compare_countries(data_dir: str = "data", output_dir: str = "data"):
         ghi = comparison_df.loc[country, 'avg_daily_ghi']
         energy = comparison_df.loc[country, 'annual_solar_energy']
         print(f"{country:<20} {score:<15.2f} {ghi:<20.2f} {energy:<20.2f}")
-    
-    # Generate comparison visualizations
-    print("\nGenerating comparison visualizations...")
-    generate_comparison_plots(cleaned_datasets, country_metrics, output_path)
+    print("="*80)
     
     return cleaned_datasets, country_metrics, comparison_df
 

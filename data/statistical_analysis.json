@@ -1,0 +1,7 @@
+{
+  "test_name": "Kruskal-Wallis",
+  "statistic": 2743.460157246952,
+  "p_value": 0.0,
+  "eta_squared": null,
+  "significant": "True"
+}

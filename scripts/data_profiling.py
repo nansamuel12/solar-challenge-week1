@@ -9,14 +9,14 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
 import json
-from data_loader import load_all_countries, clean_solar_data, profile_data
+from .data_loader import load_all_countries, clean_solar_data, profile_data
 
 # Set style
 sns.set_style("whitegrid")
 plt.rcParams['figure.figsize'] = (12, 6)
 
 
-def profile_and_clean_countries(data_dir: str = "data", output_dir: str = "data"):
+def profile_and_clean_countries(data_dir: str = "src", output_dir: str = "data"):
     """
     Profile and clean data for all countries.
     

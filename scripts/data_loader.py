@@ -50,7 +50,7 @@ def load_country_data(file_path: str, country_name: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def load_all_countries(data_dir: str = "data") -> Dict[str, pd.DataFrame]:
+def load_all_countries(data_dir: str = "src") -> Dict[str, pd.DataFrame]:
     """
     Load data for all countries.
     

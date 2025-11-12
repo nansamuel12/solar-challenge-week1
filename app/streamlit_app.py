@@ -31,7 +31,7 @@ st.set_page_config(
 
 # ---------- Helpers ----------
 @st.cache_data(show_spinner=False)
-def load_and_clean(data_dir: str = "data") -> Tuple[Dict[str, pd.DataFrame], Dict[str, pd.DataFrame], Dict[str, pd.DataFrame]]:
+def load_and_clean(data_dir: str = "src") -> Tuple[Dict[str, pd.DataFrame], Dict[str, pd.DataFrame], Dict[str, pd.DataFrame]]:
 	raw = load_all_countries(data_dir)
 	cleaned = {}
 	original = {}
@@ -179,7 +179,7 @@ def plot_wind_rose(df: pd.DataFrame, country: str) -> go.Figure:
 
 # ---------- Sidebar ----------
 st.sidebar.title("MoonLight Solar Dashboard")
-data_dir = st.sidebar.text_input("Data directory", value="data", help="Folder containing CSVs")
+data_dir = st.sidebar.text_input("Data directory", value="src", help="Folder containing CSVs")
 countries_available = ["Benin", "Sierra Leone", "Togo"]
 selected_countries = st.sidebar.multiselect("Select countries", countries_available, default=countries_available)
 
@@ -190,197 +190,199 @@ st.sidebar.markdown("---")
 st.sidebar.caption("Tip: Use the download buttons in each section to export results.")
 
 
-# ---------- Load Data ----------
-raw_datasets, cleaned_datasets, original_datasets = load_and_clean(data_dir)
-cleaned_datasets = {c: df for c, df in cleaned_datasets.items() if c in selected_countries}
-raw_datasets = {c: df for c, df in raw_datasets.items() if c in selected_countries}
-original_datasets = {c: df for c, df in original_datasets.items() if c in selected_countries}
+# ---------- Main Execution ----------
+if __name__ == "__main__":
+	# ---------- Load Data ----------
+	raw_datasets, cleaned_datasets, original_datasets = load_and_clean(data_dir)
+	cleaned_datasets = {c: df for c, df in cleaned_datasets.items() if c in selected_countries}
+	raw_datasets = {c: df for c, df in raw_datasets.items() if c in selected_countries}
+	original_datasets = {c: df for c, df in original_datasets.items() if c in selected_countries}
 
-if not cleaned_datasets:
-	st.error("No datasets loaded. Check the data directory and filenames.")
-	st.stop()
+	if not cleaned_datasets:
+		st.error("No datasets loaded. Check the data directory and filenames.")
+		st.stop()
 
-profiles = compute_profiles(cleaned_datasets, original_datasets)
-comparison_df = compute_metrics(cleaned_datasets)
-
-
-# ---------- Header ----------
-st.title("Strategic Solar Investment Insights")
-st.subheader("Profiling, Cleaning, Cross-Country Comparison, and Region Ranking")
-st.markdown(
-	"Identify high-potential regions for solar installation aligned with long-term sustainability goals."
-)
+	profiles = compute_profiles(cleaned_datasets, original_datasets)
+	comparison_df = compute_metrics(cleaned_datasets)
 
 
-# ---------- Tabs ----------
-tab1, tab2, tab3 = st.tabs(["Country Profiles", "Cross-Country Comparison", "Strategy Recommendation"])
+	# ---------- Header ----------
+	st.title("Strategic Solar Investment Insights")
+	st.subheader("Profiling, Cleaning, Cross-Country Comparison, and Region Ranking")
+	st.markdown(
+		"Identify high-potential regions for solar installation aligned with long-term sustainability goals."
+	)
 
-# Country Profiles
-with tab1:
-	for country in selected_countries:
-		if country not in cleaned_datasets:
-			continue
-		st.markdown(f"### {country}")
-		df = cleaned_datasets[country]
-		profile = profiles.get(country, {})
 
-		# Data Quality Information
-		if 'cleaning_impact' in profile:
-			impact = profile['cleaning_impact']
-			st.info(f"**Cleaning Impact**: {impact['records_removed']:,} records removed ({impact['records_before']:,} → {impact['records_after']:,}). "
-				   f"Missing values: {impact['missing_before']:,} → {impact['missing_after']:,}")
-		
-		# Columns with >5% nulls
-		if 'columns_high_null' in profile and profile['columns_high_null']:
-			high_null_cols = profile['columns_high_null']
-			st.warning(f"**Columns with >5% nulls**: {', '.join([f'{col} ({pct:.1f}%)' for col, pct in high_null_cols.items()])}")
-		else:
-			st.success("**Data Quality**: No columns with >5% nulls")
-		
-		# KPIs
-		col1, col2, col3, col4 = st.columns(4)
-		with col1:
-			st.metric("Records", f"{len(df):,}")
-			st.metric("Solar Hours (GHI>10)", f"{int((df['GHI'] > 10).sum()):,}")
-		with col2:
-			avg_ghi = df["GHI"].mean() if "GHI" in df.columns else np.nan
-			st.metric("Avg GHI", f"{avg_ghi:.1f} W/m²")
-			st.metric("Avg DNI", f"{df['DNI'].mean():.1f} W/m²" if "DNI" in df.columns else "N/A")
-		with col3:
-			st.metric("Avg Temp", f"{df['Tamb'].mean():.1f} °C" if "Tamb" in df.columns else "N/A")
-			st.metric("Avg Humidity", f"{df['RH'].mean():.1f} %" if "RH" in df.columns else "N/A")
-		with col4:
-			st.metric("Avg Wind Speed", f"{df['WS'].mean():.1f} m/s" if "WS" in df.columns else "N/A")
-			st.metric("Clear-sky ratio", f"{(df['DNI']/(df['GHI']+1e-6)).where((df['DNI']>0)&(df['GHI']>10)).mean():.2f}")
-		
-		# Data Statistics (df.describe())
-		with st.expander("📊 Detailed Statistics (df.describe())", expanded=False):
-			if 'describe' in profile and profile['describe']:
-				describe_df = pd.DataFrame(profile['describe'])
-				st.dataframe(describe_df, use_container_width=True)
+	# ---------- Tabs ----------
+	tab1, tab2, tab3 = st.tabs(["Country Profiles", "Cross-Country Comparison", "Strategy Recommendation"])
+
+	# Country Profiles
+	with tab1:
+		for country in selected_countries:
+			if country not in cleaned_datasets:
+				continue
+			st.markdown(f"### {country}")
+			df = cleaned_datasets[country]
+			profile = profiles.get(country, {})
+
+			# Data Quality Information
+			if 'cleaning_impact' in profile:
+				impact = profile['cleaning_impact']
+				st.info(f"**Cleaning Impact**: {impact['records_removed']:,} records removed ({impact['records_before']:,} → {impact['records_after']:,}). "
+					   f"Missing values: {impact['missing_before']:,} → {impact['missing_after']:,}")
+			
+			# Columns with >5% nulls
+			if 'columns_high_null' in profile and profile['columns_high_null']:
+				high_null_cols = profile['columns_high_null']
+				st.warning(f"**Columns with >5% nulls**: {', '.join([f'{col} ({pct:.1f}%)' for col, pct in high_null_cols.items()])}")
 			else:
-				numeric_cols = df.select_dtypes(include=[np.number]).columns
-				if len(numeric_cols) > 0:
-					st.dataframe(df[numeric_cols].describe(), use_container_width=True)
-		
-		# Pre/Post Cleaning Comparison
-		if country in original_datasets:
-			df_orig = original_datasets[country]
-			with st.expander("🔍 Pre/Post Cleaning Comparison", expanded=False):
-				comp_col1, comp_col2 = st.columns(2)
-				with comp_col1:
-					st.plotly_chart(plot_distribution(df_orig, "GHI", f"{country} - Before Cleaning"), use_container_width=True)
-				with comp_col2:
-					st.plotly_chart(plot_distribution(df, "GHI", f"{country} - After Cleaning"), use_container_width=True)
+				st.success("**Data Quality**: No columns with >5% nulls")
+			
+			# KPIs
+			col1, col2, col3, col4 = st.columns(4)
+			with col1:
+				st.metric("Records", f"{len(df):,}")
+				st.metric("Solar Hours (GHI>10)", f"{int((df['GHI'] > 10).sum()):,}")
+			with col2:
+				avg_ghi = df["GHI"].mean() if "GHI" in df.columns else np.nan
+				st.metric("Avg GHI", f"{avg_ghi:.1f} W/m²")
+				st.metric("Avg DNI", f"{df['DNI'].mean():.1f} W/m²" if "DNI" in df.columns else "N/A")
+			with col3:
+				st.metric("Avg Temp", f"{df['Tamb'].mean():.1f} °C" if "Tamb" in df.columns else "N/A")
+				st.metric("Avg Humidity", f"{df['RH'].mean():.1f} %" if "RH" in df.columns else "N/A")
+			with col4:
+				st.metric("Avg Wind Speed", f"{df['WS'].mean():.1f} m/s" if "WS" in df.columns else "N/A")
+				st.metric("Clear-sky ratio", f"{(df['DNI']/(df['GHI']+1e-6)).where((df['DNI']>0)&(df['GHI']>10)).mean():.2f}")
+			
+			# Data Statistics (df.describe())
+			with st.expander("📊 Detailed Statistics (df.describe())", expanded=False):
+				if 'describe' in profile and profile['describe']:
+					describe_df = pd.DataFrame(profile['describe'])
+					st.dataframe(describe_df, use_container_width=True)
+				else:
+					numeric_cols = df.select_dtypes(include=[np.number]).columns
+					if len(numeric_cols) > 0:
+						st.dataframe(df[numeric_cols].describe(), use_container_width=True)
+			
+			# Pre/Post Cleaning Comparison
+			if country in original_datasets:
+				df_orig = original_datasets[country]
+				with st.expander("🔍 Pre/Post Cleaning Comparison", expanded=False):
+					comp_col1, comp_col2 = st.columns(2)
+					with comp_col1:
+						st.plotly_chart(plot_distribution(df_orig, "GHI", f"{country} - Before Cleaning"), use_container_width=True)
+					with comp_col2:
+						st.plotly_chart(plot_distribution(df, "GHI", f"{country} - After Cleaning"), use_container_width=True)
 
-		# Plots
-		c1, c2 = st.columns(2)
-		with c1:
-			st.plotly_chart(plot_time_series(df, metric_choice, f"{metric_choice} Over Time - {country}"), use_container_width=True)
-			st.plotly_chart(plot_hourly_profile(df, "GHI", country), use_container_width=True)
-		with c2:
-			st.plotly_chart(plot_monthly_averages(df, "GHI", country), use_container_width=True)
-			st.plotly_chart(plot_distribution(df, "GHI", country), use_container_width=True)
-		
-		# Wind Rose Plot
-		if 'WD' in df.columns and 'WS' in df.columns:
-			with st.expander("🌹 Wind Rose Plot", expanded=False):
-				st.plotly_chart(plot_wind_rose(df, country), use_container_width=True)
+			# Plots
+			c1, c2 = st.columns(2)
+			with c1:
+				st.plotly_chart(plot_time_series(df, metric_choice, f"{metric_choice} Over Time - {country}"), use_container_width=True)
+				st.plotly_chart(plot_hourly_profile(df, "GHI", country), use_container_width=True)
+			with c2:
+				st.plotly_chart(plot_monthly_averages(df, "GHI", country), use_container_width=True)
+				st.plotly_chart(plot_distribution(df, "GHI", country), use_container_width=True)
+			
+			# Wind Rose Plot
+			if 'WD' in df.columns and 'WS' in df.columns:
+				with st.expander("🌹 Wind Rose Plot", expanded=False):
+					st.plotly_chart(plot_wind_rose(df, country), use_container_width=True)
 
-		if show_raw:
-			with st.expander(f"Show data - {country}", expanded=False):
-				st.dataframe(df.head(1000))
+			if show_raw:
+				with st.expander(f"Show data - {country}", expanded=False):
+					st.dataframe(df.head(1000))
 
+			st.download_button(
+				label=f"Download cleaned data - {country}",
+				data=df.to_csv(index=False).encode("utf-8"),
+				file_name=f"{country.lower().replace(' ', '_')}_cleaned.csv",
+				mime="text/csv",
+			)
+			st.markdown("---")
+
+	# Cross-Country Comparison
+	with tab2:
+		st.markdown("### Comparative Metrics and Rankings")
+		st.dataframe(comparison_df.style.background_gradient(cmap="YlGn").format("{:.2f}", na_rep="-"), use_container_width=True)
+
+		# Rank plot
+		score_fig = px.bar(
+			comparison_df.reset_index(),
+			x="index",
+			y="solar_potential_score",
+			color="index",
+			title="Overall Solar Potential Score",
+			labels={"index": "Country", "solar_potential_score": "Score"},
+		)
+		score_fig.update_layout(showlegend=False, margin=dict(l=10, r=10, t=60, b=10))
+		st.plotly_chart(score_fig, use_container_width=True)
+
+		# Monthly GHI comparison
+		monthly_traces = []
+		for country, df in cleaned_datasets.items():
+			monthly_avg = df.groupby("Month")["GHI"].mean().reindex(range(1, 13))
+			monthly_traces.append(go.Bar(name=country, x=list(range(1, 13)), y=monthly_avg.values))
+		monthly_fig = go.Figure(data=monthly_traces)
+		monthly_fig.update_layout(
+			barmode="group",
+			title="Monthly Average GHI by Country",
+			xaxis_title="Month",
+			yaxis_title="Average GHI (W/m²)",
+			margin=dict(l=10, r=10, t=60, b=10),
+		)
+		st.plotly_chart(monthly_fig, use_container_width=True)
+
+		# Download comparison
 		st.download_button(
-			label=f"Download cleaned data - {country}",
-			data=df.to_csv(index=False).encode("utf-8"),
-			file_name=f"{country.lower().replace(' ', '_')}_cleaned.csv",
+			label="Download comparison metrics (CSV)",
+			data=comparison_df.to_csv().encode("utf-8"),
+			file_name="country_comparison.csv",
 			mime="text/csv",
 		)
-		st.markdown("---")
+		st.download_button(
+			label="Download comparison metrics (JSON)",
+			data=json.dumps(comparison_df.to_dict(orient="index"), indent=2).encode("utf-8"),
+			file_name="country_metrics.json",
+			mime="application/json",
+		)
 
-# Cross-Country Comparison
-with tab2:
-	st.markdown("### Comparative Metrics and Rankings")
-	st.dataframe(comparison_df.style.background_gradient(cmap="YlGn").format("{:.2f}", na_rep="-"), use_container_width=True)
+	# Strategy Recommendation
+	with tab3:
+		st.markdown("### Data-Driven Strategy Recommendation")
+		st.write(
+			"Recommendations are derived from a composite Solar Potential Score (GHI, solar hours, clear-sky ratio, and temperature proximity to optimal)."
+		)
 
-	# Rank plot
-	score_fig = px.bar(
-		comparison_df.reset_index(),
-		x="index",
-		y="solar_potential_score",
-		color="index",
-		title="Overall Solar Potential Score",
-		labels={"index": "Country", "solar_potential_score": "Score"},
-	)
-	score_fig.update_layout(showlegend=False, margin=dict(l=10, r=10, t=60, b=10))
-	st.plotly_chart(score_fig, use_container_width=True)
+		topline = comparison_df.head(3)[["solar_potential_score", "avg_daily_ghi", "avg_daily_solar_hours", "clear_sky_ratio", "avg_temperature", "annual_solar_energy"]]
+		st.dataframe(topline.style.format("{:.2f}"), use_container_width=True)
 
-	# Monthly GHI comparison
-	monthly_traces = []
-	for country, df in cleaned_datasets.items():
-		monthly_avg = df.groupby("Month")["GHI"].mean().reindex(range(1, 13))
-		monthly_traces.append(go.Bar(name=country, x=list(range(1, 13)), y=monthly_avg.values))
-	monthly_fig = go.Figure(data=monthly_traces)
-	monthly_fig.update_layout(
-		barmode="group",
-		title="Monthly Average GHI by Country",
-		xaxis_title="Month",
-		yaxis_title="Average GHI (W/m²)",
-		margin=dict(l=10, r=10, t=60, b=10),
-	)
-	st.plotly_chart(monthly_fig, use_container_width=True)
+		# Simple narrative based on ranking
+		best_country = comparison_df.index[0]
+		st.success(
+			f"Based on current data, {best_country} ranks as the highest-potential region for near-term solar investment."
+		)
 
-	# Download comparison
-	st.download_button(
-		label="Download comparison metrics (CSV)",
-		data=comparison_df.to_csv().encode("utf-8"),
-		file_name="country_comparison.csv",
-		mime="text/csv",
-	)
-	st.download_button(
-		label="Download comparison metrics (JSON)",
-		data=json.dumps(comparison_df.to_dict(orient="index"), indent=2).encode("utf-8"),
-		file_name="country_metrics.json",
-		mime="application/json",
-	)
+		reco_points = [
+			"Prioritize grid-tied pilot plants in the top-ranked country to accelerate time-to-value.",
+			"Phase expansion into the second-ranked country for portfolio diversification and resilience.",
+			"Target commissioning windows in months with highest average GHI to optimize early yield.",
+			"Favor sites with higher clear-sky ratios and moderate temperatures to reduce performance derating.",
+			"Implement continuous monitoring to validate assumptions and recalibrate investment cadence quarterly.",
+		]
+		st.markdown("\n".join([f"- {p}" for p in reco_points]))
 
-# Strategy Recommendation
-with tab3:
-	st.markdown("### Data-Driven Strategy Recommendation")
-	st.write(
-		"Recommendations are derived from a composite Solar Potential Score (GHI, solar hours, clear-sky ratio, and temperature proximity to optimal)."
-	)
-
-	topline = comparison_df.head(3)[["solar_potential_score", "avg_daily_ghi", "avg_daily_solar_hours", "clear_sky_ratio", "avg_temperature", "annual_solar_energy"]]
-	st.dataframe(topline.style.format("{:.2f}"), use_container_width=True)
-
-	# Simple narrative based on ranking
-	best_country = comparison_df.index[0]
-	st.success(
-		f"Based on current data, {best_country} ranks as the highest-potential region for near-term solar deployment."
-	)
-
-	reco_points = [
-		"Prioritize grid-tied pilot plants in the top-ranked country to accelerate time-to-value.",
-		"Phase expansion into the second-ranked country for portfolio diversification and resilience.",
-		"Target commissioning windows in months with highest average GHI to optimize early yield.",
-		"Favor sites with higher clear-sky ratios and moderate temperatures to reduce performance derating.",
-		"Deploy continuous monitoring to validate assumptions and recalibrate investment cadence quarterly.",
-	]
-	st.markdown("\n".join([f"- {p}" for p in reco_points]))
-
-	# Export a lightweight strategy brief
-	brief = {
-		"ranking": comparison_df["solar_potential_score"].rank(ascending=False, method="min").astype(int).to_dict(),
-		"top_country": best_country,
-		"guidelines": reco_points,
-	}
-	st.download_button(
-		label="Download strategy brief (JSON)",
-		data=json.dumps(brief, indent=2).encode("utf-8"),
-		file_name="strategy_brief.json",
-		mime="application/json",
-	)
+		# Export a lightweight strategy brief
+		brief = {
+			"ranking": comparison_df["solar_potential_score"].rank(ascending=False, method="min").astype(int).to_dict(),
+			"top_country": best_country,
+			"guidelines": reco_points,
+		}
+		st.download_button(
+			label="Download strategy brief (JSON)",
+			data=json.dumps(brief, indent=2).encode("utf-8"),
+			file_name="strategy_brief.json",
+			mime="application/json",
+		)
 
 
