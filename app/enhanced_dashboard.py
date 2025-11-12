@@ -168,6 +168,44 @@ def create_interactive_boxplot(datasets: Dict[str, pd.DataFrame], metric: str) -
 	
 	return fig
 
+def create_side_by_side_boxplots(datasets: Dict[str, pd.DataFrame]) -> go.Figure:
+	"""Create side-by-side boxplots comparing GHI, DNI, DHI across all countries"""
+	
+	fig = make_subplots(
+		rows=1, cols=3,
+		subplot_titles=('GHI Distribution', 'DNI Distribution', 'DHI Distribution'),
+		horizontal_spacing=0.1
+	)
+	
+	metrics = ['GHI', 'DNI', 'DHI']
+	colors = px.colors.qualitative.Set3
+	
+	for col_idx, metric in enumerate(metrics):
+		for row_idx, country in enumerate(datasets.keys()):
+			if metric in datasets[country].columns:
+				country_data = datasets[country][metric].dropna()
+				
+				fig.add_trace(go.Box(
+					y=country_data,
+					name=country,
+					boxpoints='outliers',
+					jitter=0.3,
+					pointpos=0,
+					marker_color=colors[row_idx],
+					showlegend=(col_idx == 0),  # Only show legend for first subplot
+					legendgroup=country
+				), row=1, col=col_idx + 1)
+	
+	fig.update_layout(
+		title_text="Side-by-Side Boxplots: GHI, DNI, DHI Comparison Across Countries",
+		height=500,
+		showlegend=True
+	)
+	
+	fig.update_yaxes(title_text="Irradiance (W/m²)", row=1, col=1)
+	
+	return fig
+
 def create_interactive_heatmap(df: pd.DataFrame, country: str) -> go.Figure:
 	"""Create interactive heatmap of hourly vs monthly GHI patterns"""
 	if 'GHI' not in df.columns or 'Hour' not in df.columns or 'Month' not in df.columns:
@@ -478,15 +516,75 @@ def main():
 			st.plotly_chart(fig_gauge, use_container_width=True)
 		
 		with ranking_cols[2]:
-			# Key Insights
+			# Key Insights with strategic findings
 			st.markdown("### 💡 Key Insights")
+			
+			# Calculate strategic insights
+			top_country = metrics_df.index[0]
+			top_yield = metrics_df.iloc[0]['annual_solar_energy']
+			
+			# Find country with lowest volatility (lowest std dev)
+			lowest_volatility = None
+			min_std = float('inf')
+			for country in cleaned_datasets.keys():
+				if 'GHI' in cleaned_datasets[country].columns:
+					std_dev = cleaned_datasets[country]['GHI'].std()
+					if std_dev < min_std:
+						min_std = std_dev
+						lowest_volatility = country
+			
+			# Identify operational risk (high humidity or low clear sky ratio)
+			highest_risk = None
+			max_risk_score = 0
+			for country in cleaned_datasets.keys():
+				df = cleaned_datasets[country]
+				risk_score = 0
+				if 'RH' in df.columns:
+					risk_score += df['RH'].mean() / 100  # Humidity risk
+				if 'clear_sky_ratio' in metrics_df.columns:
+					risk_score += (1 - metrics_df.loc[country, 'clear_sky_ratio'])  # Clear sky risk
+				
+				if risk_score > max_risk_score:
+					max_risk_score = risk_score
+					highest_risk = country
+			
 			st.markdown(f"""
 			<div class="insight-box">
-			<strong>Top Performer:</strong> {metrics_df.index[0]}<br>
-			<strong>Score:</strong> {metrics_df.iloc[0]['solar_potential_score']:.2f}<br>
-			<strong>Annual Energy:</strong> {metrics_df.iloc[0]['annual_solar_energy']:.0f} kWh/m²
+			<strong>🎯 Highest Yield:</strong> {top_country} generates {top_yield:.0f} kWh/m²/year<br>
+			<strong>📊 Lowest Volatility:</strong> {lowest_volatility} offers most stable output<br>
+			<strong>⚠️ Operational Risk:</strong> {highest_risk} faces weather challenges
 			</div>
 			""", unsafe_allow_html=True)
+		
+		# Side-by-Side Boxplots for GHI, DNI, DHI
+		st.markdown("### 📊 Side-by-Side Boxplots: Resource Stability Assessment")
+		st.markdown("Visual comparison of GHI, DNI, and DHI distributions across countries to assess resource stability and standard deviation.")
+		
+		fig_boxplots = create_side_by_side_boxplots(cleaned_datasets)
+		st.plotly_chart(fig_boxplots, use_container_width=True)
+		
+		# Statistical Summary for Boxplots
+		st.markdown("#### 📈 Statistical Stability Analysis")
+		boxplot_stats = []
+		
+		for country in cleaned_datasets.keys():
+			df = cleaned_datasets[country]
+			stats_row = {'Country': country}
+			
+			for metric in ['GHI', 'DNI', 'DHI']:
+				if metric in df.columns:
+					stats_row[f'{metric}_Mean'] = df[metric].mean()
+					stats_row[f'{metric}_Std'] = df[metric].std()
+					stats_row[f'{metric}_CV'] = df[metric].std() / df[metric].mean() if df[metric].mean() > 0 else 0
+				else:
+					stats_row[f'{metric}_Mean'] = 0
+					stats_row[f'{metric}_Std'] = 0
+					stats_row[f'{metric}_CV'] = 0
+			
+			boxplot_stats.append(stats_row)
+		
+		boxplot_df = pd.DataFrame(boxplot_stats)
+		st.dataframe(boxplot_df.round(2), use_container_width=True)
 	
 	elif analysis_mode == "Detailed Analysis":
 		st.markdown("## 🔍 Detailed Country Analysis")
